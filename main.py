@@ -359,12 +359,15 @@ def create_access_token(data: dict):
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
-security = HTTPBearer()
+# auto_error=False: 토큰 누락 시 FastAPI 기본 403 대신 명세서대로 401을 반환하기 위함
+security = HTTPBearer(auto_error=False)
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: Session = Depends(get_db)
 ) -> User:
+    if credentials is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="세션이 만료되었습니다. 재로그인해 주세요.")
     token = credentials.credentials
     
     # 1. 로그아웃(블랙리스트) 체크
@@ -377,10 +380,11 @@ def get_current_user(
     # 2. 토큰 검증
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: int = payload.get("sub")
-        if user_id is None:
+        sub = payload.get("sub")
+        if sub is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 인증 정보입니다.")
-    except jwt.PyJWTError:
+        user_id = int(sub)  # PyJWT 2.10+는 sub를 문자열로만 허용하므로 문자열로 발급 후 여기서 변환
+    except (jwt.PyJWTError, ValueError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="세션이 만료되었습니다. 재로그인해 주세요.")
 
     user = db.query(User).filter(User.id == user_id).first()
@@ -695,7 +699,7 @@ def signup(req: SignupRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
 
-    token = create_access_token({"sub": user.id})
+    token = create_access_token({"sub": str(user.id)})
     return TokenResponse(access_token=token, user_id=user.id, account_id=user.account_id, nickname=user.nickname)
 
 
@@ -706,7 +710,7 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     if not user or not user.password_hash or not verify_password(req.password, user.password_hash):
         raise HTTPException(status_code=401, detail="입력 오류 또는 로그인 실패: 계정이나 비밀번호를 다시 확인해 주세요.")
 
-    token = create_access_token({"sub": user.id})
+    token = create_access_token({"sub": str(user.id)})
     return TokenResponse(access_token=token, user_id=user.id, account_id=user.account_id, nickname=user.nickname)
 
 
@@ -728,7 +732,7 @@ def oauth_login(req: OAuthLoginRequest, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(user)
 
-    token = create_access_token({"sub": user.id})
+    token = create_access_token({"sub": str(user.id)})
     return TokenResponse(access_token=token, user_id=user.id, account_id=user.account_id, nickname=user.nickname)
 
 
@@ -918,7 +922,7 @@ def get_historical_photos(
     if not verified_visit:
         raise HTTPException(
             status_code=403,
-            detail="장소 방문 인증을 완료한 후에만 과거 사진을 열람할 수 있습니다. (S05/S07 정책)"
+            detail="장소 방문 인증을 완료한 후에만 과거 사진을 열람할 수 있습니다."
         )
 
     photos = db.query(HistoricalPhoto).filter(HistoricalPhoto.place_id == place_id).all()
@@ -1019,7 +1023,7 @@ def submit_mission_proof(
         UserMission.status == VerifyStatus.SUCCESS.value
     ).first()
     if existing_success:
-        raise HTTPException(status_code=409, detail="이미 인증이 완료된 미션입니다. 중복 제출할 수 없습니다. (S10 중복 요청 방지)")
+        raise HTTPException(status_code=409, detail="이미 인증이 완료된 미션입니다. 중복 제출할 수 없습니다.")
 
     eval_status, feedback = evaluate_mission_with_ai(mission, req.proof_text, req.proof_image_url)
 
@@ -1197,10 +1201,11 @@ def get_mypage_summary(
     db: Session = Depends(get_db)
 ):
     """[S14 마이페이지 메인] 계정 요약과 방문 장소 수, 획득 보상 수를 한 번에 반환합니다."""
-    visit_count = db.query(PlaceVisit).filter(
+    # 같은 장소를 여러 번 인증해도 1곳으로 집계
+    visit_count = db.query(PlaceVisit.place_id).filter(
         PlaceVisit.user_id == current_user.id,
         PlaceVisit.status == VerifyStatus.SUCCESS.value
-    ).count()
+    ).distinct().count()
     reward_count = db.query(UserReward).filter(UserReward.user_id == current_user.id).count()
 
     return {
@@ -1223,6 +1228,12 @@ def get_my_visited_places(
         PlaceVisit.user_id == current_user.id,
         PlaceVisit.status == VerifyStatus.SUCCESS.value
     ).order_by(PlaceVisit.verified_at.desc()).all()
+
+    # 같은 장소를 여러 번 인증한 경우 가장 최근 방문 기록만 표시
+    latest_visits = {}
+    for v in visits:
+        latest_visits.setdefault(v.place_id, v)
+    visits = list(latest_visits.values())
 
     items = [
         {
