@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# 로컬 실행 시 생성되는 DB와 업로드 파일
+*.db
+uploads/
