@@ -1,0 +1,52 @@
+[
+  {
+    "pin_code": "A",
+    "name": "계산성당 역사거리",
+    "address": "대구광역시 중구 서성로 10",
+    "summary": "계산성당 - 대구 중구 서성로 10 (1902년 건립 근대 건축)",
+    "description": "대구 최초의 서양식 성당 건축물로, 100년이 넘는 세월 동안 대구의 근현대사를 간직한 상징적 공간입니다.",
+    "latitude": 35.8679,
+    "longitude": 128.5878,
+    "image_url": "https://images.unsplash.com/photo-1548625361-16800b328a79?auto=format&fit=crop&w=800&q=80",
+    "qr_secret": "QR_PLACE_A_2026",
+    "historical_photos": [
+      {
+        "image_url": "https://example.com/archive/gyesan_1920.jpg",
+        "taken_year": "1926년경 확인",
+        "source": "샘플 데이터 - 실제 출처 확인 전",
+        "caption": "첨탑 주변으로 낮은 기와집들이 펼쳐져 있던 1920년대 계산성당 일대 전경"
+      }
+    ]
+  },
+  {
+    "pin_code": "B",
+    "name": "청라언덕과 3·1만세운동길",
+    "address": "대구광역시 중구 달구벌대로 2029",
+    "summary": "청라언덕 - 대구 중구 달구벌대로 2029 (근대문화골목)",
+    "description": "푸른 담쟁이덩굴로 덮인 선교사 주택과 90계단 위 대구의 시대적 풍경이 교차하는 역사 아카이브 지점입니다.",
+    "latitude": 35.8665,
+    "longitude": 128.5843,
+    "image_url": "https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?auto=format&fit=crop&w=800&q=80",
+    "qr_secret": "QR_PLACE_B_2026",
+    "historical_photos": [
+      {
+        "image_url": "https://example.com/archive/cheongna_1935.jpg",
+        "taken_year": "1935년 확인",
+        "source": "샘플 데이터 - 실제 출처 확인 전",
+        "caption": "90계단 위에서 내려다본 옛 대구 시가지와 시내전차 노선 흔적"
+      }
+    ]
+  },
+  {
+    "pin_code": "C",
+    "name": "북성로 공구골목 구 삼덕상회",
+    "address": "대구광역시 중구 북성로 48",
+    "summary": "북성로 공구골목 - 대구 중구 북성로 48 (근대 산업 유산)",
+    "description": "일제강점기 미나카이 백화점 인근 상권에서 출발해 전후 산업화를 이끈 기술 장인들의 기억이 서린 골목입니다.",
+    "latitude": 35.8738,
+    "longitude": 128.5912,
+    "image_url": "https://images.unsplash.com/photo-1519501025264-65ba15a82390?auto=format&fit=crop&w=800&q=80",
+    "qr_secret": "QR_PLACE_C_2026",
+    "historical_photos": []
+  }
+]
