@@ -112,6 +112,38 @@ def test_local_signup_cannot_take_social_namespace(client):
     assert res.status_code == 400
 
 
+@pytest.fixture
+def same_second_login(client, monkeypatch):
+    """모든 토큰이 같은 시각에 발급되도록 고정하고, 로그인할 때마다 새 헤더를 돌려줍니다."""
+    now = main.utcnow()
+    monkeypatch.setattr(main, "utcnow", lambda: now)
+    cred = {"account_id": f"device_{next(_counter)}", "password": "password123!"}
+    assert client.post("/api/v1/auth/signup", json={**cred, "password_confirm": cred["password"]}).status_code == 201
+
+    def login():
+        token = client.post("/api/v1/auth/login", json=cred).json()["access_token"]
+        return {"Authorization": f"Bearer {token}"}
+    return login
+
+
+def test_consecutive_logins_get_distinct_tokens(same_second_login):
+    assert same_second_login() != same_second_login()
+
+
+def test_logout_keeps_other_session(client, same_second_login):
+    first, second = same_second_login(), same_second_login()
+    client.post("/api/v1/auth/logout", headers=first)
+    assert client.get("/api/v1/auth/status", headers=second).status_code == 200
+    assert client.get("/api/v1/auth/status", headers=first).status_code == 401
+
+
+def test_relogin_after_logout_works(client, same_second_login):
+    old = same_second_login()
+    client.post("/api/v1/auth/logout", headers=old)
+    assert client.get("/api/v1/auth/status", headers=same_second_login()).status_code == 200
+    assert client.get("/api/v1/auth/status", headers=old).status_code == 401
+
+
 # ---------- Step 5~8: 지도, 방문 인증, 과거 사진 ----------
 def test_recommendations_match_spec_distances(client):
     pins = client.get("/api/v1/places/recommendations",
