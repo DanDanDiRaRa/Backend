@@ -112,7 +112,6 @@ class AuthProvider(str, Enum):
 
 class VisitVerifyMethod(str, Enum):
     GPS = "GPS"
-    QR = "QR"
     PHOTO = "PHOTO"
 
 
@@ -162,7 +161,6 @@ class Place(Base):
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     image_url = Column(String(500), nullable=True)      # S05 장소 이미지 (선택 항목)
-    qr_secret = Column(String(100), nullable=True)      # QR 인증 시 검증 코드
 
     historical_photos = relationship("HistoricalPhoto", back_populates="place")
     missions = relationship("Mission", back_populates="place")
@@ -324,7 +322,6 @@ class VisitVerifyRequest(BaseModel):
     verify_method: VisitVerifyMethod = Field(default=VisitVerifyMethod.GPS)
     latitude: Optional[float] = Field(None, description="GPS 인증 시 현재 위도")
     longitude: Optional[float] = Field(None, description="GPS 인증 시 현재 경도")
-    qr_code: Optional[str] = Field(None, description="QR 인증 시 스캔한 코드")
     photo_url: Optional[str] = Field(None, description="사진 인증 시 업로드한 이미지 URL")
 
 
@@ -757,7 +754,6 @@ class PlaceSeed(BaseModel):
     latitude: float = Field(..., ge=33, le=39)      # 위도·경도를 바꿔 적는 실수 방지 (대한민국 범위)
     longitude: float = Field(..., ge=124, le=132)
     image_url: Optional[str] = Field(None, max_length=500)
-    qr_secret: str = Field(..., min_length=8, max_length=100)
     historical_photos: List[HistoricalPhotoSeed] = Field(default_factory=list)
 
 
@@ -781,11 +777,10 @@ def load_place_seeds(path: str) -> List[PlaceSeed]:
         except ValueError as e:
             raise RuntimeError(f"장소 파일 {index}번째 항목이 잘못되었습니다: {e}")
 
-    for field in ("pin_code", "qr_secret"):
-        values = [getattr(seed, field) for seed in seeds]
-        duplicates = sorted({v for v in values if values.count(v) > 1})
-        if duplicates:
-            raise RuntimeError(f"장소 파일에 {field} 값이 중복되었습니다: {duplicates}")
+    pin_codes = [seed.pin_code for seed in seeds]
+    duplicates = sorted({v for v in pin_codes if pin_codes.count(v) > 1})
+    if duplicates:
+        raise RuntimeError(f"장소 파일에 pin_code 값이 중복되었습니다: {duplicates}")
     return seeds
 
 
@@ -1028,7 +1023,7 @@ def verify_place_visit(
 ):
     """
     [3.1.1~3.1.3 장소 방문 인증 요청 및 결과 확인 / S06, S07]
-    GPS(반경 300m 이내), QR 코드, 사진 인증 방식을 모두 수용하며 성공·실패·오류 사유를 명확히 구분해 저장 및 반환합니다.
+    GPS(반경 300m 이내)와 사진 인증 방식을 수용하며 성공·실패·오류 사유를 명확히 구분해 저장 및 반환합니다.
     """
     place = db.query(Place).filter(Place.id == place_id).first()
     if not place:
@@ -1049,13 +1044,6 @@ def verify_place_visit(
             else:
                 verify_status = VerifyStatus.FAILED
                 reason = f"선택한 장소와 거리가 멉니다(현재 약 {int(distance)}m 거리). 장소 반경 300m 이내에서 다시 시도해 주세요."
-    elif req.verify_method == VisitVerifyMethod.QR:
-        if req.qr_code and req.qr_code == place.qr_secret:
-            verify_status = VerifyStatus.SUCCESS
-            reason = "현장 QR 코드 인증이 완료되었습니다."
-        else:
-            verify_status = VerifyStatus.FAILED
-            reason = "유효하지 않은 현장 QR 코드입니다."
     elif req.verify_method == VisitVerifyMethod.PHOTO:
         if req.photo_url:
             verify_status, reason = evaluate_visit_photo(place, req.photo_url)

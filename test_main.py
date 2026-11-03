@@ -169,6 +169,12 @@ def test_verify_visit_cases(client):
     assert none["status"] == "ERROR"
 
 
+def test_qr_visit_method_is_rejected(client):
+    res = client.post("/api/v1/places/1/verify-visit", headers=auth(client),
+                      json={"verify_method": "QR", "qr_code": "anything"})
+    assert res.status_code == 422
+
+
 def test_photo_visit_requires_own_upload(client):
     h = auth(client)
     res = client.post("/api/v1/places/1/verify-visit", headers=h, json={
@@ -307,7 +313,7 @@ def test_mypage_empty_states_and_profile(client):
 def _seed(**overrides):
     return {**{
         "pin_code": "Z", "name": "테스트 장소", "address": "대구광역시 중구", "summary": "요약",
-        "description": "설명", "latitude": 35.87, "longitude": 128.59, "qr_secret": "QR_TEST_ZZZ",
+        "description": "설명", "latitude": 35.87, "longitude": 128.59,
         "historical_photos": [{"image_url": "https://x/a.jpg", "taken_year": "1950년", "source": "테스트 출처"}],
     }, **overrides}
 
@@ -327,7 +333,7 @@ def test_sync_adds_and_updates_without_changing_ids(client, tmp_path):
     try:
         place_a_id = db.query(main.Place).filter_by(pin_code="A").one().id
         seeds = main.load_place_seeds(_write(tmp_path, [
-            _seed(pin_code="A", name="이름 변경", qr_secret="QR_TEST_AAA", historical_photos=[]),
+            _seed(pin_code="A", name="이름 변경", historical_photos=[]),
             _seed(),
         ]))
         main.sync_places(db, seeds)
@@ -347,8 +353,7 @@ def test_sync_adds_and_updates_without_changing_ids(client, tmp_path):
 @pytest.mark.parametrize("data", [
     [],
     [_seed(latitude=128.59, longitude=35.87)],  # 위도·경도 뒤바뀜
-    [_seed(), _seed(qr_secret="QR_TEST_OTHER")],  # pin_code 중복
-    [_seed(), _seed(pin_code="Y")],  # qr_secret 중복
+    [_seed(), _seed()],  # pin_code 중복
     [{"pin_code": "Z"}],  # 필수 항목 누락
 ])
 def test_invalid_places_file_is_rejected(tmp_path, data):

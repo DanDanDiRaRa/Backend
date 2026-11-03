@@ -8,7 +8,6 @@
     "latitude": 35.8679,
     "longitude": 128.5878,
     "image_url": "https://images.unsplash.com/photo-1548625361-16800b328a79?auto=format&fit=crop&w=800&q=80",
-    "qr_secret": "QR_PLACE_A_2026",
     "historical_photos": [
       {
         "image_url": "https://example.com/archive/gyesan_1920.jpg",
@@ -27,7 +26,6 @@
     "latitude": 35.8665,
     "longitude": 128.5843,
     "image_url": "https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?auto=format&fit=crop&w=800&q=80",
-    "qr_secret": "QR_PLACE_B_2026",
     "historical_photos": [
       {
         "image_url": "https://example.com/archive/cheongna_1935.jpg",
@@ -46,7 +44,6 @@
     "latitude": 35.8738,
     "longitude": 128.5912,
     "image_url": "https://images.unsplash.com/photo-1519501025264-65ba15a82390?auto=format&fit=crop&w=800&q=80",
-    "qr_secret": "QR_PLACE_C_2026",
     "historical_photos": []
   }
 ]
