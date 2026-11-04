@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import (
     create_engine, Column, Integer, String, Float, Boolean,
-    DateTime, ForeignKey, Text, UniqueConstraint, Index, text
+    DateTime, ForeignKey, Text, UniqueConstraint, Index, text, inspect
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.types import TypeDecorator
@@ -161,6 +161,7 @@ class Place(Base):
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     image_url = Column(String(500), nullable=True)      # S05 장소 이미지 (선택 항목)
+    image_source = Column(String(255), nullable=True)   # S05 장소 이미지 출처 (선택 항목)
 
     historical_photos = relationship("HistoricalPhoto", back_populates="place")
     missions = relationship("Mission", back_populates="place")
@@ -263,6 +264,11 @@ class UserReward(Base):
 
 Base.metadata.create_all(bind=engine)
 
+# create_all은 기존 테이블에 열을 추가하지 않으므로, 이전 DB에 없는 열만 추가합니다.
+if "image_source" not in {c["name"] for c in inspect(engine).get_columns("places")}:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE places ADD COLUMN image_source VARCHAR(255)"))
+
 
 # ==========================================
 # 4. Pydantic 스키마 (Request / Response DTO)
@@ -314,6 +320,7 @@ class PlaceDetailResponse(BaseModel):
     latitude: float
     longitude: float
     image_url: Optional[str] = None
+    image_source: Optional[str] = None
     is_visited: bool = False
     guide_message: str = "이 장소에 방문하면 연결된 과거 사진과 장소 관련 미션을 확인할 수 있어요."
 
@@ -470,6 +477,13 @@ def sniff_image_extension(head: bytes) -> Optional[str]:
     if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
         return "webp"
     return None
+
+
+def absolute_image_url(image_url: Optional[str]) -> Optional[str]:
+    """/static 경로 이미지는 클라이언트가 바로 열 수 있도록 BASE_URL을 붙인 절대 주소로 바꿉니다."""
+    if image_url and image_url.startswith("/static/"):
+        return f"{BASE_URL}{image_url}"
+    return image_url
 
 
 def _local_upload_path(image_url: Optional[str]) -> Optional[str]:
@@ -737,6 +751,11 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # 2. 클라이언트가 URL로 이미지에 접근할 수 있도록 Static 경로 마운트
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
+# 3. 장소 대표 사진·과거 사진 등 저장소에 포함된 정적 파일 제공
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+os.makedirs(STATIC_DIR, exist_ok=True)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
 
 class HistoricalPhotoSeed(BaseModel):
     image_url: str = Field(..., min_length=1, max_length=500)
@@ -754,7 +773,22 @@ class PlaceSeed(BaseModel):
     latitude: float = Field(..., ge=33, le=39)      # 위도·경도를 바꿔 적는 실수 방지 (대한민국 범위)
     longitude: float = Field(..., ge=124, le=132)
     image_url: Optional[str] = Field(None, max_length=500)
+    image_source: Optional[str] = Field(None, max_length=255)
     historical_photos: List[HistoricalPhotoSeed] = Field(default_factory=list)
+
+
+def find_sample_place_data(seeds: List[PlaceSeed]) -> List[str]:
+    """운영에 내보내면 안 되는 예시 주소(example.com)와 '샘플 데이터' 출처를 찾습니다."""
+    problems = []
+    for seed in seeds:
+        urls = [seed.image_url] + [photo.image_url for photo in seed.historical_photos]
+        sources = [seed.image_source] + [photo.source for photo in seed.historical_photos]
+        hosts = [(urlparse(url).hostname or "") for url in urls if url]
+        if any(host == "example.com" or host.endswith(".example.com") for host in hosts):
+            problems.append(f"{seed.pin_code}: example.com 주소")
+        if any("샘플 데이터" in source for source in sources if source):
+            problems.append(f"{seed.pin_code}: 샘플 데이터 출처")
+    return problems
 
 
 def load_place_seeds(path: str) -> List[PlaceSeed]:
@@ -781,6 +815,11 @@ def load_place_seeds(path: str) -> List[PlaceSeed]:
     duplicates = sorted({v for v in pin_codes if pin_codes.count(v) > 1})
     if duplicates:
         raise RuntimeError(f"장소 파일에 pin_code 값이 중복되었습니다: {duplicates}")
+
+    if IS_PRODUCTION:
+        problems = find_sample_place_data(seeds)
+        if problems:
+            raise RuntimeError(f"운영 환경에서는 샘플 장소 데이터를 사용할 수 없습니다: {problems}")
     return seeds
 
 
@@ -1006,7 +1045,8 @@ def get_place_detail(
         description=place.description,
         latitude=place.latitude,
         longitude=place.longitude,
-        image_url=place.image_url,
+        image_url=absolute_image_url(place.image_url),
+        image_source=place.image_source,
         is_visited=visited
     )
 
@@ -1102,7 +1142,7 @@ def get_historical_photos(
     photo_items = [
         HistoricalPhotoItem(
             id=p.id,
-            image_url=p.image_url,
+            image_url=absolute_image_url(p.image_url),
             taken_year=p.taken_year,
             source=p.source,
             caption=p.caption
@@ -1493,7 +1533,8 @@ def get_my_visited_place_detail(
             "name": visit.place.name,
             "address": visit.place.address,
             "description": visit.place.description,
-            "image_url": visit.place.image_url
+            "image_url": absolute_image_url(visit.place.image_url),
+            "image_source": visit.place.image_source
         },
         "mission_histories": [
             {

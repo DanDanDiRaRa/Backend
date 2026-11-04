@@ -3,6 +3,7 @@ import io
 import json
 import os
 import tempfile
+from types import SimpleNamespace
 
 _tmp = tempfile.mkdtemp()
 os.chdir(_tmp)  # DB와 uploads를 임시 폴더에 생성
@@ -20,7 +21,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import main  # noqa: E402
 
-A = {"latitude": 35.8680, "longitude": 128.5879}  # 장소 A 반경 내 (명세 Step 7)
+A = {"latitude": 35.874004, "longitude": 128.578099}  # 장소 A 달성공원 좌표 (명세 Step 7)
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
 _counter = iter(range(1, 100000))
 
@@ -148,8 +149,8 @@ def test_relogin_after_logout_works(client, same_second_login):
 def test_recommendations_match_spec_distances(client):
     pins = client.get("/api/v1/places/recommendations",
                       params={"latitude": 35.8682, "longitude": 128.5875}).json()
-    assert [p["pin_code"] for p in pins] == ["A", "B", "C"]
-    assert pytest.approx(pins[0]["distance_meters"], abs=1) == 42.8
+    assert [p["pin_code"] for p in pins] == ["B", "E", "A", "C", "D"]
+    assert pytest.approx(pins[0]["distance_meters"], abs=1) == 609.0
     no_location = client.get("/api/v1/places/recommendations").json()
     assert all(p["distance_meters"] is None for p in no_location)
 
@@ -189,6 +190,59 @@ def test_historical_photos_gate(client):
     assert res.json()["detail"] == "장소 방문 인증을 완료한 후에만 과거 사진을 열람할 수 있습니다."
     visit(client, h)
     assert client.get("/api/v1/places/1/historical-photos", headers=h).json()["has_photos"] is True
+
+
+# ---------- 장소 사진과 출처 ----------
+def place_id_by_pin(client, pin):
+    return next(p["id"] for p in client.get("/api/v1/places/recommendations").json() if p["pin_code"] == pin)
+
+
+def test_place_detail_returns_absolute_static_image_and_source(client):
+    body = client.get(f"/api/v1/places/{place_id_by_pin(client, 'A')}", headers=auth(client)).json()
+    assert body["image_url"] == "http://testserver/static/places/dalseong-main.jpg"
+    assert body["image_source"].startswith("출처 - 대구광역시")
+    res = client.get("/static/places/dalseong-main.jpg")
+    assert res.status_code == 200 and res.headers["content-type"] == "image/jpeg"
+
+
+def test_place_without_image_returns_null(client):
+    body = client.get(f"/api/v1/places/{place_id_by_pin(client, 'C')}", headers=auth(client)).json()
+    assert body["name"] == "대구역"
+    assert body["image_url"] is None and body["image_source"] is None
+
+
+def test_historical_photos_and_visit_detail_use_absolute_urls(client):
+    h = auth(client)
+    visit_id = visit(client, h)["visit_id"]
+    photos = client.get("/api/v1/places/1/historical-photos", headers=h).json()["photos"]
+    assert len(photos) == 4
+    assert all(p["image_url"].startswith("http://testserver/static/places/") for p in photos)
+    place = client.get(f"/api/v1/mypage/visits/{visit_id}", headers=h).json()["place"]
+    assert place["image_url"] == "http://testserver/static/places/dalseong-main.jpg"
+    assert place["image_source"].startswith("출처 - 대구광역시")
+
+
+def test_mission_prompt_sends_text_only(client, monkeypatch):
+    captured = {}
+
+    def create(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="{}"))])
+
+    fake = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(main, "openai_client", fake)
+    db = main.SessionLocal()
+    try:
+        place = db.query(main.Place).filter_by(pin_code="A").one()
+        _, is_ai = main.generate_ai_mission_for_place(place, place.historical_photos)
+    finally:
+        db.close()
+
+    assert is_ai is True
+    assert all(isinstance(m["content"], str) for m in captured["messages"])  # 이미지 입력 없음
+    prompt = "\n".join(m["content"] for m in captured["messages"])
+    assert "/static/" not in prompt and ".jpg" not in prompt
+    assert "1971년" in prompt  # 과거 사진의 텍스트 정보는 전달
 
 
 # ---------- Step 9~12: 미션 ----------
@@ -325,7 +379,7 @@ def _write(tmp_path, data):
 
 
 def test_places_file_is_valid():
-    assert [s.pin_code for s in main.load_place_seeds(main.PLACES_FILE)][:3] == ["A", "B", "C"]
+    assert [s.pin_code for s in main.load_place_seeds(main.PLACES_FILE)] == ["A", "B", "C", "D", "E"]
 
 
 def test_sync_adds_and_updates_without_changing_ids(client, tmp_path):
@@ -359,3 +413,31 @@ def test_sync_adds_and_updates_without_changing_ids(client, tmp_path):
 def test_invalid_places_file_is_rejected(tmp_path, data):
     with pytest.raises(RuntimeError):
         main.load_place_seeds(_write(tmp_path, data))
+
+
+def test_every_static_image_in_places_file_exists():
+    seeds = main.load_place_seeds(main.PLACES_FILE)
+    urls = [s.image_url for s in seeds] + [p.image_url for s in seeds for p in s.historical_photos]
+    static_urls = [u for u in urls if u and u.startswith("/static/")]
+    assert len(static_urls) == 19
+    missing = [u for u in static_urls if not os.path.isfile(os.path.join(main.STATIC_DIR, u[len("/static/"):]))]
+    assert missing == []
+
+
+@pytest.mark.parametrize("overrides", [
+    {"image_url": "https://example.com/main.jpg"},
+    {"historical_photos": [{"image_url": "https://cdn.example.com/a.jpg", "taken_year": "1950년", "source": "테스트 출처"}]},
+    {"historical_photos": [{"image_url": "/static/a.jpg", "taken_year": "1950년", "source": "샘플 데이터 - 실제 출처 확인 전"}]},
+    {"image_source": "샘플 데이터"},
+])
+def test_production_rejects_sample_place_data(tmp_path, monkeypatch, overrides):
+    path = _write(tmp_path, [_seed(**overrides)])
+    assert main.load_place_seeds(path)  # 개발 모드에서는 허용
+    monkeypatch.setattr(main, "IS_PRODUCTION", True)
+    with pytest.raises(RuntimeError, match="샘플 장소 데이터"):
+        main.load_place_seeds(path)
+
+
+def test_production_accepts_real_places_file(monkeypatch):
+    monkeypatch.setattr(main, "IS_PRODUCTION", True)
+    assert len(main.load_place_seeds(main.PLACES_FILE)) == 5
