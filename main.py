@@ -556,7 +556,7 @@ def generate_ai_mission_for_place(place: Place, photos: List[HistoricalPhoto]) -
         '  "content": "수행할 미션의 핵심 본문 설명 (2~3문장)",\n'
         '  "step_guides": ["1. 첫 번째 단계 안내", "2. 두 번째 단계 안내", "3. 세 번째 단계 안내 (정확히 3개 원소 배열)"],\n'
         '  "verification_criteria": "나중에 AI 심사관이 사용자의 제출 텍스트/사진을 승인할 때 확인할 구체적인 통과 기준",\n'
-        '  "reward_name": "보상 이름 (예: 계산성당 기억 조각 스탬프 & 500 로컬 포인트)",\n'
+        '  "reward_name": "보상 이름 (예: <장소명> 기억 조각 스탬프 & 500 로컬 포인트)",\n'
         '  "reward_detail": "보상 상세 설명"\n'
         "}"
     )
