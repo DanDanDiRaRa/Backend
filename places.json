@@ -1,0 +1,157 @@
+[
+  {
+    "pin_code": "A",
+    "name": "달성공원",
+    "address": "대구광역시 중구 달성공원로 35",
+    "summary": "달성공원 - 대구 중구 달성공원로 35 (대구에서 가장 오래된 도심 공원)",
+    "description": "옛 부족국가 달구벌의 토성인 달성에서 이름이 유래한 대구의 도심 공원입니다. 사적지와 산책로, 동물원을 함께 둘러볼 수 있습니다.",
+    "latitude": 35.874004,
+    "longitude": 128.578099,
+    "image_url": "/static/places/dalseong-main.jpg",
+    "image_source": "출처 - 대구광역시, 공공누리(https://www.kogl.or.kr/recommend/recommendDivView.do?oc=&recommendIdx=63689&division=img)",
+    "historical_photos": [
+      {
+        "image_url": "/static/places/dalseong-past-1.jpg",
+        "taken_year": "1971년",
+        "source": "출처 - 셀수스협동조합, 공유마당(https://gongu.copyright.or.kr/gongu/wrt/wrt/view.do?wrtSn=13297797&menuNo=200018)",
+        "caption": "정문을 중심에 두고 위에서 내려다본 달성공원 전경. 기와 건물과 넓은 입구 광장이 보인다."
+      },
+      {
+        "image_url": "/static/places/dalseong-past-2.jpg",
+        "taken_year": "1971년",
+        "source": "출처 - 셀수스협동조합, 공유마당(https://gongu.copyright.or.kr/gongu/wrt/wrt/view.do?wrtSn=13297799&menuNo=200018)",
+        "caption": "흑백으로 담은 달성공원 전경. 기와 건물과 입구 길, 오가는 사람들이 보인다."
+      },
+      {
+        "image_url": "/static/places/dalseong-past-3.jpg",
+        "taken_year": "1971년",
+        "source": "출처 - 셀수스협동조합, 공유마당(https://gongu.copyright.or.kr/gongu/wrt/wrt/view.do?wrtSn=13297800&menuNo=200018)",
+        "caption": "큰 나무 아래 벤치에 사람들이 앉아 있는 달성공원. 왼쪽에 비석과 조각상이 보인다."
+      },
+      {
+        "image_url": "/static/places/dalseong-past-4.jpg",
+        "taken_year": "1971년",
+        "source": "출처 - 셀수스협동조합, 공유마당(https://gongu.copyright.or.kr/gongu/wrt/wrt/view.do?wrtSn=13297798&menuNo=200018)",
+        "caption": "달성공원에 세워진 이상화 시비. 비석에 시 구절이 새겨져 있다."
+      }
+    ]
+  },
+  {
+    "pin_code": "B",
+    "name": "서문시장",
+    "address": "대구광역시 중구 큰장로26길 45",
+    "summary": "서문시장 - 대구 중구 큰장로26길 45 (대구의 전통시장)",
+    "description": "옷감과 생활용품, 먹거리 상점이 모인 대구의 대표 전통시장입니다. 시대별 상점 모습과 지금의 시장을 비교해 볼 수 있습니다.",
+    "latitude": 35.868888,
+    "longitude": 128.580795,
+    "image_url": "/static/places/seomun-main.jpg",
+    "image_source": "출처 - 대구광역시, 공공누리(https://www.kogl.or.kr/recommend/recommendDivView.do?oc=&recommendIdx=63575&division=img)",
+    "historical_photos": [
+      {
+        "image_url": "/static/places/seomun-past-1.jpg",
+        "taken_year": "1971년",
+        "source": "출처 - 셀수스협동조합, 공유마당(https://gongu.copyright.or.kr/gongu/wrt/wrt/view.do?wrtSn=13297811&menuNo=200018)",
+        "caption": "상회 간판 아래 옷감이 가득 쌓인 서문시장의 포목점 골목."
+      },
+      {
+        "image_url": "/static/places/seomun-past-2.jpg",
+        "taken_year": "1957년",
+        "source": "출처 - 한국저작권위원회, 공유마당(https://gongu.copyright.or.kr/gongu/wrt/wrt/view.do?wrtSn=13152608&menuNo=200018), CC BY",
+        "caption": "나무 진열대에 고무신과 구두가 줄지어 놓인 서문시장의 신발가게."
+      },
+      {
+        "image_url": "/static/places/seomun-past-3.jpg",
+        "taken_year": "1957년",
+        "source": "출처 - 한국저작권위원회, 공유마당(https://gongu.copyright.or.kr/gongu/wrt/wrt/view.do?wrtSn=13152607&menuNo=200018), CC BY",
+        "caption": "양은 그릇과 주전자가 쌓인 서문시장의 그릇가게."
+      }
+    ]
+  },
+  {
+    "pin_code": "C",
+    "name": "대구역",
+    "address": "대구광역시 북구 칠성동2가 302-155",
+    "summary": "대구역 - 대구 북구 칠성동2가 (대구 도심의 철도역)",
+    "description": "대구 도심에 있는 철도역입니다. 1952년 기록 사진으로 역 앞 광장과 거리의 옛 모습을 만날 수 있습니다.",
+    "latitude": 35.876083,
+    "longitude": 128.596031,
+    "image_url": null,
+    "image_source": null,
+    "historical_photos": [
+      {
+        "image_url": "/static/places/daegu-station-past-1.jpg",
+        "taken_year": "1952년",
+        "source": "출처 - 한국저작권위원회, 공유마당(https://gongu.copyright.or.kr/gongu/wrt/wrt/view.do?wrtSn=13152359&menuNo=200018), CC BY",
+        "caption": "대구역 앞 광장에서 소년에게 모자를 씌워 주는 모습. 뒤로 기와지붕 건물들이 보인다."
+      },
+      {
+        "image_url": "/static/places/daegu-station-past-2.jpg",
+        "taken_year": "1952년",
+        "source": "출처 - 한국저작권위원회, 공유마당(https://gongu.copyright.or.kr/gongu/wrt/wrt/view.do?wrtSn=13152356&menuNo=200018), CC BY",
+        "caption": "대구역 앞 거리의 노점상과 사람들. 철조망과 버스, 건물들이 보인다."
+      },
+      {
+        "image_url": "/static/places/daegu-station-past-3.jpg",
+        "taken_year": "1952년",
+        "source": "출처 - 한국저작권위원회, 공유마당(https://gongu.copyright.or.kr/gongu/wrt/wrt/view.do?wrtSn=13152535&menuNo=200018), CC BY",
+        "caption": "대구역 앞을 달리는 시영버스. 차체에 시영버스라고 적혀 있다."
+      }
+    ]
+  },
+  {
+    "pin_code": "D",
+    "name": "안동 하회마을",
+    "address": "경상북도 안동시 풍천면 전서로 186",
+    "summary": "안동 하회마을 - 경북 안동시 풍천면 전서로 186 (전통 마을)",
+    "description": "옛 한옥과 초가가 남아 있는 경북 안동의 전통 마을입니다. 강과 마을 건물의 옛 사진을 현재 모습과 비교해 볼 수 있습니다.",
+    "latitude": 36.538913,
+    "longitude": 128.518147,
+    "image_url": "/static/places/hahoe-main.jpg",
+    "image_source": "출처 - 한국저작권위원회, 공유마당(https://gongu.copyright.or.kr/gongu/wrt/wrt/view.do?wrtSn=13219514&menuNo=200026), CC BY",
+    "historical_photos": [
+      {
+        "image_url": "/static/places/hahoe-past-1.jpg",
+        "taken_year": "1971년",
+        "source": "출처 - 셀수스협동조합, 공유마당(https://gongu.copyright.or.kr/gongu/wrt/wrt/view.do?wrtSn=13298652&menuNo=200018)",
+        "caption": "하회마을 강가에 작은 배가 떠 있고 맞은편에 높은 절벽이 보인다."
+      },
+      {
+        "image_url": "/static/places/hahoe-past-2.jpg",
+        "taken_year": "1971년",
+        "source": "출처 - 셀수스협동조합, 공유마당(https://gongu.copyright.or.kr/gongu/wrt/wrt/view.do?wrtSn=13299266&menuNo=200026)",
+        "caption": "하회마을 충효당의 기와 건물 모습."
+      },
+      {
+        "image_url": "/static/places/hahoe-past-3.jpg",
+        "taken_year": "1971년",
+        "source": "출처 - 셀수스협동조합, 공유마당(https://gongu.copyright.or.kr/gongu/wrt/wrt/view.do?wrtSn=13298724&menuNo=200026)",
+        "caption": "하회마을 영모각의 현대식 콘크리트 건물 모습."
+      }
+    ]
+  },
+  {
+    "pin_code": "E",
+    "name": "경상감영공원",
+    "address": "대구광역시 중구 경상감영길 99",
+    "summary": "경상감영공원 - 대구 중구 경상감영길 99 (옛 중앙공원)",
+    "description": "1970년 중앙공원으로 개장해 1999년 경상감영공원으로 이름이 바뀐 도심 역사공원입니다. 선화당과 징청각이 있습니다.",
+    "latitude": 35.872216,
+    "longitude": 128.592222,
+    "image_url": "/static/places/gamyeong-main.jpg",
+    "image_source": "출처 - 대구광역시 중구, 공공누리(https://www.kogl.or.kr/recommend/recommendDivView.do?oc=&recommendIdx=50675&division=img)",
+    "historical_photos": [
+      {
+        "image_url": "/static/places/gamyeong-past-1.jpg",
+        "taken_year": "1971년",
+        "source": "출처 - 셀수스협동조합, 공유마당(https://gongu.copyright.or.kr/gongu/wrt/wrt/view.do?wrtSn=13297813&menuNo=200018)",
+        "caption": "1971년 중앙공원 시절의 모습. 기와 건물 두 동과 앞쪽 꽃밭이 보인다."
+      },
+      {
+        "image_url": "/static/places/gamyeong-past-2.jpg",
+        "taken_year": "1971년",
+        "source": "출처 - 셀수스협동조합, 공유마당(https://gongu.copyright.or.kr/gongu/wrt/wrt/view.do?wrtSn=13297814&menuNo=200018)",
+        "caption": "흑백으로 담은 중앙공원 모습. 기와 건물 두 동과 화단이 보인다."
+      }
+    ]
+  }
+]
