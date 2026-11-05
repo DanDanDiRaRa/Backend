@@ -516,6 +516,16 @@ def has_verified_visit(db: Session, user_id: int, place_id: int) -> bool:
     ).first() is not None
 
 
+def has_failed_gps_attempt(db: Session, user_id: int, place_id: int) -> bool:
+    """같은 장소에서 GPS 인증에 실패(FAILED/ERROR)한 기록이 있는지 확인합니다. 사진 인증 실패 기록은 인정하지 않습니다."""
+    return db.query(PlaceVisit).filter(
+        PlaceVisit.user_id == user_id,
+        PlaceVisit.place_id == place_id,
+        PlaceVisit.verify_method == VisitVerifyMethod.GPS.value,
+        PlaceVisit.status.in_([VerifyStatus.FAILED.value, VerifyStatus.ERROR.value])
+    ).first() is not None
+
+
 def generate_ai_mission_for_place(place: Place, photos: List[HistoricalPhoto]) -> tuple[dict, bool]:
     """
     [5.1.1 미션 제시 / S09]
@@ -1064,6 +1074,7 @@ def verify_place_visit(
     """
     [3.1.1~3.1.3 장소 방문 인증 요청 및 결과 확인 / S06, S07]
     GPS(반경 300m 이내)와 사진 인증 방식을 수용하며 성공·실패·오류 사유를 명확히 구분해 저장 및 반환합니다.
+    사진 인증은 같은 장소에서 GPS 인증에 실패한 기록이 있을 때만 진행합니다.
     """
     place = db.query(Place).filter(Place.id == place_id).first()
     if not place:
@@ -1085,7 +1096,10 @@ def verify_place_visit(
                 verify_status = VerifyStatus.FAILED
                 reason = f"선택한 장소와 거리가 멉니다(현재 약 {int(distance)}m 거리). 장소 반경 300m 이내에서 다시 시도해 주세요."
     elif req.verify_method == VisitVerifyMethod.PHOTO:
-        if req.photo_url:
+        if not has_failed_gps_attempt(db, current_user.id, place.id):
+            verify_status = VerifyStatus.ERROR
+            reason = "GPS 인증에 실패한 경우에만 사진 인증을 사용할 수 있습니다. 먼저 GPS 인증을 시도해 주세요."
+        elif req.photo_url:
             verify_status, reason = evaluate_visit_photo(place, req.photo_url)
         else:
             verify_status = VerifyStatus.ERROR

@@ -176,11 +176,138 @@ def test_qr_visit_method_is_rejected(client):
     assert res.status_code == 422
 
 
-def test_photo_visit_requires_own_upload(client):
+# ---------- 사진 방문 인증 (GPS 인증 실패 후에만 허용) ----------
+PHOTO_GATE_REASON = "GPS 인증에 실패한 경우에만 사진 인증을 사용할 수 있습니다. 먼저 GPS 인증을 시도해 주세요."
+FAR = {"latitude": 35.85, "longitude": 128.55}  # 장소 A·B에서 3km 이상 떨어진 좌표
+NO_LOCATION = {"latitude": None, "longitude": None}
+
+
+def gps_attempt(client, headers, coords, place_id=1):
+    res = client.post(f"/api/v1/places/{place_id}/verify-visit", headers=headers,
+                      json={"verify_method": "GPS", **coords})
+    assert res.status_code == 200
+    return res.json()
+
+
+def photo_attempt(client, headers, photo_url, place_id=1):
+    res = client.post(f"/api/v1/places/{place_id}/verify-visit", headers=headers,
+                      json={"verify_method": "PHOTO", "photo_url": photo_url})
+    assert res.status_code == 200
+    return res.json()
+
+
+def upload_png(client, headers):
+    res = client.post("/api/v1/files/upload", headers=headers, files={"file": ("x.png", io.BytesIO(PNG), "image/png")})
+    assert res.status_code == 200
+    return res.json()["file_url"]
+
+
+@pytest.fixture
+def vision(monkeypatch):
+    """사진 심사 AI 호출 수와 업로드 이미지 읽기 수를 기록합니다. verdicts에 넣은 순서대로 판정합니다."""
+    spy = SimpleNamespace(ai_calls=0, image_reads=0, verdicts=[])
+    resolve = main._resolve_image_for_vision
+
+    def tracked_resolve(url):
+        spy.image_reads += 1
+        return resolve(url)
+
+    def create(**kwargs):
+        spy.ai_calls += 1
+        verdict = spy.verdicts.pop(0) if spy.verdicts else "SUCCESS"
+        content = json.dumps({"status": verdict, "reason": f"테스트 판정: {verdict}"})
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
+    monkeypatch.setattr(main, "_resolve_image_for_vision", tracked_resolve)
+    monkeypatch.setattr(main, "openai_client", SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
+    return spy
+
+
+def assert_photo_gated(res, vision):
+    assert res["status"] == "ERROR" and res["reason"] == PHOTO_GATE_REASON
+    assert res["can_view_historical_photos"] is False
+    assert vision.ai_calls == 0 and vision.image_reads == 0  # 사진 URL 검사와 AI 호출 없음
+
+
+def test_photo_visit_requires_own_upload(client, vision):
     h = auth(client)
-    res = client.post("/api/v1/places/1/verify-visit", headers=h, json={
-        "verify_method": "PHOTO", "photo_url": "https://example.com/anything.jpg"}).json()
+    assert gps_attempt(client, h, FAR)["status"] == "FAILED"
+    res = photo_attempt(client, h, "https://example.com/anything.jpg")
     assert res["status"] == "ERROR"
+    assert res["reason"] == "업로드한 방문 인증 사진을 찾을 수 없습니다. 사진을 다시 업로드해 주세요."
+    assert vision.ai_calls == 0
+
+
+def test_photo_after_gps_failure_keeps_existing_error_handling(client, vision, monkeypatch):
+    h = auth(client)
+    gps_attempt(client, h, FAR)
+
+    missing = client.post("/api/v1/places/1/verify-visit", headers=h, json={"verify_method": "PHOTO"}).json()
+    assert missing["status"] == "ERROR" and missing["reason"] == "방문 인증 사진이 정상적으로 첨부되지 않았습니다."
+
+    def broken(**kwargs):
+        raise RuntimeError("vision unavailable")
+
+    monkeypatch.setattr(main.openai_client.chat.completions, "create", broken)
+    failed = photo_attempt(client, h, upload_png(client, h))
+    assert failed["status"] == "ERROR"
+    assert failed["reason"] == "사진 심사 중 일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
+
+
+def test_photo_rejected_without_gps_attempt(client, vision):
+    h = auth(client)
+    assert_photo_gated(photo_attempt(client, h, upload_png(client, h)), vision)
+
+
+def test_photo_rejected_when_only_gps_success(client, vision):
+    h = auth(client)
+    assert gps_attempt(client, h, A)["status"] == "SUCCESS"
+    assert_photo_gated(photo_attempt(client, h, upload_png(client, h)), vision)
+
+
+@pytest.mark.parametrize("coords, gps_status", [(FAR, "FAILED"), (NO_LOCATION, "ERROR")])
+def test_photo_allowed_after_gps_failure(client, vision, coords, gps_status):
+    h = auth(client)
+    assert gps_attempt(client, h, coords)["status"] == gps_status
+    res = photo_attempt(client, h, upload_png(client, h))
+    assert res["status"] == "SUCCESS" and res["can_view_historical_photos"] is True
+    assert vision.ai_calls == 1
+
+
+def test_gps_failure_at_other_place_not_counted(client, vision):
+    h = auth(client)
+    assert gps_attempt(client, h, FAR, place_id=2)["status"] == "FAILED"
+    assert_photo_gated(photo_attempt(client, h, upload_png(client, h), place_id=1), vision)
+
+
+def test_other_users_gps_failure_not_counted(client, vision):
+    other = auth(client)
+    assert gps_attempt(client, other, FAR)["status"] == "FAILED"
+    h = auth(client)
+    assert_photo_gated(photo_attempt(client, h, upload_png(client, h)), vision)
+
+
+def test_photo_failures_alone_do_not_unlock_photo(client, vision):
+    h = auth(client)
+    user_id = client.get("/api/v1/auth/status", headers=h).json()["user_id"]
+    db = main.SessionLocal()
+    try:
+        db.add_all(main.PlaceVisit(user_id=user_id, place_id=1, verify_method="PHOTO", status=status,
+                                   reason="이전 사진 인증 실패") for status in ("FAILED", "ERROR"))
+        db.commit()
+    finally:
+        db.close()
+    assert_photo_gated(photo_attempt(client, h, upload_png(client, h)), vision)
+
+
+def test_photo_can_retry_after_photo_failure(client, vision):
+    h = auth(client)
+    gps_attempt(client, h, FAR)
+    vision.verdicts = ["FAILED", "SUCCESS"]
+    assert photo_attempt(client, h, upload_png(client, h))["status"] == "FAILED"
+    retry = photo_attempt(client, h, upload_png(client, h))
+    assert retry["status"] == "SUCCESS" and retry["can_view_historical_photos"] is True
+    assert vision.ai_calls == 2
 
 
 def test_historical_photos_gate(client):
