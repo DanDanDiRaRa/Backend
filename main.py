@@ -385,6 +385,22 @@ class MissionVerifyResultResponse(BaseModel):
     submitted_at: datetime
 
 
+class MySubmissionItem(BaseModel):
+    submission_id: int
+    mission_id: int
+    place_id: int
+    status: VerifyStatus
+    ai_feedback: str
+    can_claim_reward: bool
+    reward_id: Optional[int] = None  # 이 제출로 받은 보상이 없으면 null
+    submitted_at: datetime
+
+
+class MySubmissionListResponse(BaseModel):
+    total_count: int
+    submissions: List[MySubmissionItem]
+
+
 class RewardClaimRequest(BaseModel):
     submission_id: int = Field(..., description="승인(SUCCESS)된 미션 제출 ID")
 
@@ -1326,6 +1342,39 @@ def get_mission_submission_result(
         can_claim_reward=(sub.status == VerifyStatus.SUCCESS.value),
         submitted_at=sub.submitted_at
     )
+
+
+@app.get("/api/v1/missions/my-submissions", response_model=MySubmissionListResponse, tags=["4. AI 미션 및 인증 (S09-S11)"])
+def get_my_mission_submissions(
+    place_id: Optional[int] = Query(None, description="이 장소의 제출만 조회 (선택)"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """[미션 인증 제출 내역 목록] 로그인한 사용자의 제출 내역을 최신순으로 반환하며, 보상을 받은 제출은 reward_id를 함께 반환합니다."""
+    if place_id is not None and not db.query(Place).filter(Place.id == place_id).first():
+        raise HTTPException(status_code=404, detail="장소를 찾을 수 없습니다.")
+
+    query = db.query(UserMission, UserReward.id).outerjoin(
+        UserReward, UserReward.user_mission_id == UserMission.id
+    ).filter(UserMission.user_id == current_user.id)
+    if place_id is not None:
+        query = query.filter(UserMission.place_id == place_id)
+    rows = query.order_by(UserMission.submitted_at.desc(), UserMission.id.desc()).all()
+
+    items = [
+        MySubmissionItem(
+            submission_id=sub.id,
+            mission_id=sub.mission_id,
+            place_id=sub.place_id,
+            status=VerifyStatus(sub.status),
+            ai_feedback=sub.ai_feedback,
+            can_claim_reward=(sub.status == VerifyStatus.SUCCESS.value),
+            reward_id=reward_id,
+            submitted_at=sub.submitted_at
+        )
+        for sub, reward_id in rows
+    ]
+    return MySubmissionListResponse(total_count=len(items), submissions=items)
 
 
 # ------------------------------------------

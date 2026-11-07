@@ -459,6 +459,144 @@ def test_other_user_cannot_read_submission(client):
     assert res.status_code == 404
 
 
+# ---------- 내 미션 제출 내역 목록 ----------
+MY_SUBMISSIONS = "/api/v1/missions/my-submissions"
+LONG_PROOF = "첨탑은 그대로지만 주변 기와집은 사라졌습니다."
+
+
+def mission_at(client, headers, place_id):
+    """해당 장소 좌표로 GPS 방문 인증을 마치고 그 장소의 미션을 받습니다."""
+    place = next(p for p in client.get("/api/v1/places/recommendations").json() if p["id"] == place_id)
+    res = client.post(f"/api/v1/places/{place_id}/verify-visit", headers=headers, json={
+        "verify_method": "GPS", "latitude": place["latitude"], "longitude": place["longitude"]})
+    assert res.json()["status"] == "SUCCESS"
+    res = client.post(f"/api/v1/places/{place_id}/missions/generate", headers=headers)
+    assert res.status_code == 200
+    return res.json()
+
+
+def submit(client, headers, mission_id, proof_text):
+    res = client.post(f"/api/v1/missions/{mission_id}/submit", headers=headers, json={"proof_text": proof_text})
+    assert res.status_code == 200
+    return res.json()
+
+
+def my_submissions(client, headers, **params):
+    res = client.get(MY_SUBMISSIONS, headers=headers, params=params)
+    assert res.status_code == 200
+    return res.json()
+
+
+@pytest.mark.parametrize("headers, detail", [
+    ({}, "세션이 만료되었습니다. 재로그인해 주세요."),
+    ({"Authorization": "Bearer not-a-jwt"}, "세션이 만료되었습니다. 재로그인해 주세요."),
+])
+def test_my_submissions_requires_login(client, headers, detail):
+    res = client.get(MY_SUBMISSIONS, headers=headers)
+    assert res.status_code == 401
+    assert res.json()["detail"] == detail
+
+
+def test_my_submissions_empty(client):
+    assert my_submissions(client, auth(client)) == {"total_count": 0, "submissions": []}
+
+
+def test_my_submissions_newest_first_and_matches_single_lookup(client):
+    h = auth(client)
+    m1 = mission_at(client, h, 1)["mission_id"]
+    m2 = mission_at(client, h, 2)["mission_id"]
+    first = submit(client, h, m1, "짧음")
+    second = submit(client, h, m1, LONG_PROOF)
+    third = submit(client, h, m2, "짧음")
+
+    body = my_submissions(client, h)
+    assert body["total_count"] == 3
+    assert [s["submission_id"] for s in body["submissions"]] == \
+        [third["submission_id"], second["submission_id"], first["submission_id"]]
+
+    # 기존 단건 조회 API와 같은 값·시간 형식, reward_id만 추가
+    for item in body["submissions"]:
+        single = client.get(f"/api/v1/missions/submissions/{item['submission_id']}", headers=h).json()
+        assert {k: v for k, v in item.items() if k != "reward_id"} == single
+        assert item["reward_id"] is None
+        assert item["submitted_at"].endswith(("Z", "+00:00"))
+    assert [s["can_claim_reward"] for s in body["submissions"]] == [False, True, False]
+
+    # id 순서가 아니라 제출 시각 기준으로 정렬하는지 확인
+    db = main.SessionLocal()
+    try:
+        sub = db.get(main.UserMission, first["submission_id"])
+        sub.submitted_at = main.utcnow() + main.timedelta(hours=1)
+        db.commit()
+    finally:
+        db.close()
+    assert my_submissions(client, h)["submissions"][0]["submission_id"] == first["submission_id"]
+
+
+def test_my_submissions_place_filter(client):
+    h = auth(client)
+    m1 = mission_at(client, h, 1)["mission_id"]
+    m2 = mission_at(client, h, 2)["mission_id"]
+    at_place1 = submit(client, h, m1, "짧음")
+    at_place2 = [submit(client, h, m2, "짧음"), submit(client, h, m2, LONG_PROOF)]
+
+    body = my_submissions(client, h, place_id=2)
+    assert body["total_count"] == 2
+    assert [s["submission_id"] for s in body["submissions"]] == [s["submission_id"] for s in reversed(at_place2)]
+    assert all(s["place_id"] == 2 for s in body["submissions"])
+
+    body = my_submissions(client, h, place_id=1)
+    assert [s["submission_id"] for s in body["submissions"]] == [at_place1["submission_id"]]
+
+    # 제출이 없는 실제 장소는 404가 아니라 빈 목록
+    assert my_submissions(client, h, place_id=3) == {"total_count": 0, "submissions": []}
+
+
+def test_my_submissions_unknown_place_is_404(client):
+    res = client.get(MY_SUBMISSIONS, headers=auth(client), params={"place_id": 99999})
+    assert res.status_code == 404
+    assert res.json()["detail"] == "장소를 찾을 수 없습니다."
+
+
+def test_my_submissions_hides_other_users(client):
+    other = auth(client)
+    other_sub = submit(client, other, mission_at(client, other, 1)["mission_id"], LONG_PROOF)
+    h = auth(client)
+    mine = submit(client, h, mission_at(client, h, 1)["mission_id"], "짧음")
+
+    for params in ({}, {"place_id": 1}):
+        ids = [s["submission_id"] for s in my_submissions(client, h, **params)["submissions"]]
+        assert ids == [mine["submission_id"]]
+    assert [s["submission_id"] for s in my_submissions(client, other)["submissions"]] == [other_sub["submission_id"]]
+
+
+def test_my_submissions_reward_id_after_claim(client):
+    h = auth(client)
+    mission_id = mission_at(client, h, 1)["mission_id"]
+    fail = submit(client, h, mission_id, "짧음")
+    ok = submit(client, h, mission_id, LONG_PROOF)
+
+    before = {s["submission_id"]: s for s in my_submissions(client, h)["submissions"]}
+    assert before[ok["submission_id"]]["reward_id"] is None
+    assert before[ok["submission_id"]]["can_claim_reward"] is True
+
+    reward = client.post("/api/v1/rewards/claim", headers=h, json={"submission_id": ok["submission_id"]}).json()
+    after = {s["submission_id"]: s for s in my_submissions(client, h)["submissions"]}
+    assert after[ok["submission_id"]]["reward_id"] == reward["reward_id"]
+    assert after[ok["submission_id"]]["can_claim_reward"] is True  # 기존 제출 API와 같은 기준 (SUCCESS 여부)
+    assert after[fail["submission_id"]]["reward_id"] is None
+    assert len(after) == 2  # 보상 조인으로 행이 늘어나지 않음
+
+
+def test_my_submissions_route_does_not_shadow_single_lookup(client):
+    h = auth(client)
+    sub = submit(client, h, mission_at(client, h, 1)["mission_id"], "짧음")
+    single = client.get(f"/api/v1/missions/submissions/{sub['submission_id']}", headers=h)
+    assert single.status_code == 200 and "reward_id" not in single.json()
+    assert client.get("/api/v1/missions/submissions/my-submissions", headers=h).status_code == 422
+    assert "submissions" in my_submissions(client, h)
+
+
 # ---------- Step 16~21: 마이페이지 ----------
 def test_mypage_counts_places_not_attempts(client):
     h = auth(client)
