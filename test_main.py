@@ -2,6 +2,8 @@
 import io
 import json
 import os
+import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 
@@ -18,6 +20,7 @@ os.environ.update(
 import httpx  # noqa: E402
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy.orm import Query  # noqa: E402
 
 import main  # noqa: E402
 
@@ -595,6 +598,181 @@ def test_my_submissions_route_does_not_shadow_single_lookup(client):
     assert single.status_code == 200 and "reward_id" not in single.json()
     assert client.get("/api/v1/missions/submissions/my-submissions", headers=h).status_code == 422
     assert "submissions" in my_submissions(client, h)
+
+
+# ---------- 개발용 미션 초기화 API ----------
+RESET = "/api/v1/dev/missions/reset"
+DEV_TOKEN = "test-dev-token"
+
+
+@pytest.fixture
+def dev_token(monkeypatch):
+    monkeypatch.setattr(main, "DEV_RESET_TOKEN", DEV_TOKEN)
+    return {"X-Dev-Token": DEV_TOKEN}
+
+
+def reset(client, headers, token_headers, **params):
+    return client.post(RESET, headers={**headers, **token_headers}, params=params)
+
+
+def make_records(client, headers):
+    """장소 1에 실패 1·승인 1, 장소 2에 승인 1을 제출하고 승인 건의 보상을 받습니다. (제출 3개, 보상 2개)"""
+    m1 = mission_at(client, headers, 1)["mission_id"]
+    m2 = mission_at(client, headers, 2)["mission_id"]
+    fail1 = submit(client, headers, m1, "짧음")
+    ok1 = submit(client, headers, m1, LONG_PROOF)
+    ok2 = submit(client, headers, m2, LONG_PROOF)
+    rewards = [
+        client.post("/api/v1/rewards/claim", headers=headers, json={"submission_id": s["submission_id"]}).json()["reward_id"]
+        for s in (ok1, ok2)
+    ]
+    return {"missions": (m1, m2), "subs": (fail1["submission_id"], ok1["submission_id"], ok2["submission_id"]),
+            "rewards": rewards}
+
+
+def reward_count(client, headers):
+    return client.get("/api/v1/mypage/rewards", headers=headers).json()["total_count"]
+
+
+def test_reset_is_404_when_token_not_configured(client, monkeypatch):
+    monkeypatch.setattr(main, "DEV_RESET_TOKEN", "")
+    h = auth(client)
+    for headers in ({}, {"X-Dev-Token": ""}, {"X-Dev-Token": "anything"}):
+        res = client.post(RESET, headers={**h, **headers})
+        assert res.status_code == 404 and res.json() == {"detail": "Not Found"}
+    assert client.post(RESET).status_code == 404  # 로그인 없이도 API 존재를 드러내지 않음
+
+
+def test_reset_requires_matching_dev_token(client, dev_token):
+    h = auth(client)
+    submit(client, h, mission_at(client, h, 1)["mission_id"], "짧음")
+    for headers in (
+        {}, {"X-Dev-Token": ""}, {"X-Dev-Token": "wrong"}, {"X-Dev-Token": DEV_TOKEN + "x"},
+        {"X-Dev-Token": DEV_TOKEN[:-1]}, {"X-Dev-Token": "한글토큰".encode("utf-8")},  # ASCII 아닌 값도 500이 아닌 403
+    ):
+        res = client.post(RESET, headers={**h, **headers})
+        assert res.status_code == 403, headers
+    assert my_submissions(client, h)["total_count"] == 1  # 거절된 요청은 아무것도 지우지 않음
+
+
+def test_reset_requires_login(client, dev_token):
+    for headers in ({}, {"Authorization": "Bearer not-a-jwt"}):
+        res = client.post(RESET, headers={**headers, **dev_token})
+        assert res.status_code == 401
+        assert res.json()["detail"] == "세션이 만료되었습니다. 재로그인해 주세요."
+    assert client.post(RESET).status_code == 403  # 토큰 검사가 먼저 실행됨
+
+
+def test_reset_is_hidden_from_docs(client):
+    assert any(getattr(r, "path", "") == RESET for r in main.app.routes)  # 등록은 되어 있음
+    assert RESET not in client.get("/openapi.json").json()["paths"]
+
+
+def test_reset_route_is_not_registered_in_production(tmp_path):
+    repo = os.path.dirname(os.path.abspath(main.__file__))
+    script = ("import sys; sys.path.insert(0, sys.argv[1]); import main; "
+              f"print(any(getattr(r, 'path', '') == '{RESET}' for r in main.app.routes))")
+
+    def registered(**env):
+        full_env = {**os.environ, "DEV_RESET_TOKEN": "token-set-even-in-production", "PYTHONDONTWRITEBYTECODE": "1",
+                    "DATABASE_URL": f"sqlite:///{tmp_path}/{env['APP_ENV']}.db", **env}
+        done = subprocess.run([sys.executable, "-c", script, repo], cwd=tmp_path, env=full_env,
+                              capture_output=True, text=True, timeout=120)
+        assert done.returncode == 0, done.stderr
+        return done.stdout.strip() == "True"
+
+    assert registered(APP_ENV="development") is True  # 대조군: 개발 모드에서는 등록됨
+    assert registered(APP_ENV="production", JWT_SECRET_KEY="test-secret-for-subprocess", OPENAI_API_KEY="test-key",
+                      BASE_URL="https://api.test", CORS_ORIGINS="https://front.test", OAUTH_DEMO_MODE="false") is False
+
+
+def test_reset_by_place_keeps_other_places_and_users(client, dev_token):
+    other = auth(client)
+    other_rec = make_records(client, other)
+    h = auth(client)
+    rec = make_records(client, h)
+
+    res = reset(client, h, dev_token, place_id=1)
+    assert res.status_code == 200
+    assert res.json() == {"deleted_submissions": 2, "deleted_rewards": 1}
+
+    mine = my_submissions(client, h)["submissions"]
+    assert [s["submission_id"] for s in mine] == [rec["subs"][2]]  # 장소 2의 제출만 남음
+    assert mine[0]["reward_id"] == rec["rewards"][1]
+    assert reward_count(client, h) == 1
+    assert client.get(f"/api/v1/rewards/{rec['rewards'][0]}", headers=h).status_code == 404  # 장소 1의 보상은 함께 삭제
+    assert client.get(f"/api/v1/rewards/{rec['rewards'][1]}", headers=h).status_code == 200
+
+    # 방문 기록과 미션은 남음
+    assert client.get("/api/v1/mypage/visits", headers=h).json()["total_count"] == 2
+    assert client.post("/api/v1/places/1/missions/generate", headers=h).json()["mission_id"] == rec["missions"][0]
+
+    # 다른 사용자의 기록은 그대로
+    theirs = my_submissions(client, other)["submissions"]
+    assert len(theirs) == 3
+    assert sorted(s["reward_id"] for s in theirs if s["reward_id"]) == sorted(other_rec["rewards"])
+    assert reward_count(client, other) == 2
+
+
+def test_reset_all_keeps_visits_and_other_users(client, dev_token):
+    other = auth(client)
+    make_records(client, other)
+    h = auth(client)
+    make_records(client, h)
+
+    assert reset(client, h, dev_token).json() == {"deleted_submissions": 3, "deleted_rewards": 2}
+    assert my_submissions(client, h) == {"total_count": 0, "submissions": []}
+    assert reward_count(client, h) == 0
+    assert client.get("/api/v1/mypage/visits", headers=h).json()["total_count"] == 2
+    assert my_submissions(client, other)["total_count"] == 3
+    assert reward_count(client, other) == 2
+    assert reset(client, h, dev_token).json() == {"deleted_submissions": 0, "deleted_rewards": 0}
+
+
+def test_can_resubmit_same_mission_after_reset(client, dev_token):
+    h = auth(client)
+    mission_id = mission_at(client, h, 1)["mission_id"]
+    first = submit(client, h, mission_id, LONG_PROOF)
+    client.post("/api/v1/rewards/claim", headers=h, json={"submission_id": first["submission_id"]})
+    dup = client.post(f"/api/v1/missions/{mission_id}/submit", headers=h, json={"proof_text": LONG_PROOF})
+    assert dup.status_code == 409  # 초기화 전에는 중복 제출 불가
+
+    assert reset(client, h, dev_token).json() == {"deleted_submissions": 1, "deleted_rewards": 1}
+    again = submit(client, h, mission_id, LONG_PROOF)
+    assert again["status"] == "SUCCESS" and again["can_claim_reward"] is True
+    claim = client.post("/api/v1/rewards/claim", headers=h, json={"submission_id": again["submission_id"]})
+    assert claim.status_code == 200
+    assert client.get("/api/v1/mypage/summary", headers=h).json()["total_reward_count"] == 1
+
+
+def test_reset_unknown_place_is_404_and_deletes_nothing(client, dev_token):
+    h = auth(client)
+    submit(client, h, mission_at(client, h, 1)["mission_id"], "짧음")
+    res = reset(client, h, dev_token, place_id=99999)
+    assert res.status_code == 404 and res.json()["detail"] == "장소를 찾을 수 없습니다."
+    assert my_submissions(client, h)["total_count"] == 1
+
+
+def test_reset_is_one_transaction(client, dev_token, monkeypatch):
+    h = auth(client)
+    make_records(client, h)
+    real_delete = Query.delete
+    calls = []
+
+    def flaky_delete(self, *args, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:  # 보상 삭제 뒤, 제출 삭제에서 실패
+            raise RuntimeError("simulated failure while deleting submissions")
+        return real_delete(self, *args, **kwargs)
+
+    monkeypatch.setattr(Query, "delete", flaky_delete)
+    with pytest.raises(RuntimeError):
+        reset(client, h, dev_token)
+    monkeypatch.setattr(Query, "delete", real_delete)
+
+    assert len(calls) == 2  # 보상 삭제가 이미 실행된 뒤에 실패했음
+    assert my_submissions(client, h)["total_count"] == 3
+    assert reward_count(client, h) == 2  # 보상 삭제도 함께 되돌려짐
 
 
 # ---------- Step 16~21: 마이페이지 ----------
