@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import List, Optional
 import uuid
+import secrets
 import shutil
 import base64
 from urllib.parse import urlparse
@@ -53,6 +54,7 @@ openai_client = OpenAI(api_key=OPENAI_API_KEY, timeout=20.0, max_retries=1) if O
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
 OAUTH_DEMO_MODE = os.getenv("OAUTH_DEMO_MODE", "false").lower() == "true"
+DEV_RESET_TOKEN = os.getenv("DEV_RESET_TOKEN", "")  # 개발용 미션 초기화 API 전용 토큰 (비어 있으면 API 비활성)
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10MB
 
 if IS_PRODUCTION:
@@ -1677,3 +1679,58 @@ def update_my_profile(
         "nickname": current_user.nickname,
         "extra_info": current_user.extra_info
     }
+
+
+# ------------------------------------------
+# [개발 전용] 미션 기록 초기화 (운영 환경에서는 등록하지 않음)
+# ------------------------------------------
+def require_dev_token(x_dev_token: Optional[str] = Header(None)) -> None:
+    """DEV_RESET_TOKEN이 없으면 없는 경로처럼 404, 헤더가 없거나 다르면 403을 반환합니다."""
+    if not DEV_RESET_TOKEN:
+        raise HTTPException(status_code=404, detail="Not Found")
+    # compare_digest는 ASCII가 아닌 str을 받지 못하므로 바이트로 비교 (한글 헤더가 와도 500이 되지 않게)
+    if x_dev_token is None or not secrets.compare_digest(
+        x_dev_token.encode("utf-8"), DEV_RESET_TOKEN.encode("utf-8")
+    ):
+        raise HTTPException(status_code=403, detail="개발용 토큰이 올바르지 않습니다.")
+
+
+def register_dev_routes(target_app: FastAPI) -> None:
+    if IS_PRODUCTION:
+        return
+
+    @target_app.post(
+        "/api/v1/dev/missions/reset",
+        include_in_schema=False,  # /docs에 노출하지 않음
+        dependencies=[Depends(require_dev_token)],  # 토큰 검사가 로그인 검사보다 먼저 실행됨
+    )
+    def reset_my_missions(
+        place_id: Optional[int] = Query(None, description="이 장소의 기록만 초기화 (생략하면 전체)"),
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+    ):
+        """로그인한 본인의 미션 제출 기록과 그 제출로 받은 보상을 지웁니다. 방문 기록과 미션은 남깁니다."""
+        if place_id is not None and not db.query(Place).filter(Place.id == place_id).first():
+            raise HTTPException(status_code=404, detail="장소를 찾을 수 없습니다.")
+
+        submission_ids = db.query(UserMission.id).filter(UserMission.user_id == current_user.id)
+        if place_id is not None:
+            submission_ids = submission_ids.filter(UserMission.place_id == place_id)
+        submission_ids = submission_ids.subquery()
+
+        try:  # 보상 → 제출 순서로 지우고 한 번에 commit (중간에 실패하면 전부 되돌림)
+            deleted_rewards = db.query(UserReward).filter(
+                UserReward.user_id == current_user.id,
+                UserReward.user_mission_id.in_(db.query(submission_ids.c.id))
+            ).delete(synchronize_session=False)
+            deleted_submissions = db.query(UserMission).filter(
+                UserMission.id.in_(db.query(submission_ids.c.id))
+            ).delete(synchronize_session=False)
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        return {"deleted_submissions": deleted_submissions, "deleted_rewards": deleted_rewards}
+
+
+register_dev_routes(app)
